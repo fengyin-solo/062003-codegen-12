@@ -330,7 +330,7 @@ export function processDay(state) {
     totalExpenses,
     trainees,
     relationships,
-    schedule: {},
+    schedule: Object.assign({}, {}),
     logs: [...state.logs, ...logs],
     pendingEvent,
     pendingRating,
@@ -744,8 +744,7 @@ export function respondToRumor(state, rumorId, strategyKey) {
 
   return {
     success: true,
-    state: {
-      ...state,
+    state: Object.assign({}, state, {
       money,
       totalExpenses,
       fans,
@@ -755,7 +754,8 @@ export function respondToRumor(state, rumorId, strategyKey) {
       rumors,
       logs,
       sentimentLogs,
-    },
+      schedule: Object.assign({}, state.schedule || {}),
+    }),
   }
 }
 
@@ -805,8 +805,7 @@ export function comfortFans(state, actionKey) {
 
   return {
     success: true,
-    state: {
-      ...state,
+    state: Object.assign({}, state, {
       money,
       totalExpenses,
       fans,
@@ -815,6 +814,104 @@ export function comfortFans(state, actionKey) {
       trainees,
       logs,
       sentimentLogs,
-    },
+      schedule: Object.assign({}, state.schedule || {}),
+    }),
+  }
+}
+
+export function triggerRumor(state, rumorType) {
+  const activeTrainees = (state.trainees || []).filter((t) => t.status !== 'left' && t.illnessDays === 0)
+  if (activeTrainees.length === 0) return { success: false, message: '没有可安排的练习生' }
+
+  const typeConfig = CFG.sentiment.rumorTypes[rumorType]
+  if (!typeConfig) return { success: false, message: '传闻类型无效' }
+
+  const target = pickRandom(activeTrainees)
+  const newRumor = {
+    id: `r_debug_${state.day}_${Date.now()}`,
+    type: rumorType,
+    label: typeConfig.label,
+    icon: typeConfig.icon,
+    description: typeConfig.description,
+    targetId: target.id,
+    targetName: target.name,
+    severity: randInt(typeConfig.severity[0], typeConfig.severity[1]),
+    fansLossRate: randFloat(typeConfig.fansLossRate[0], typeConfig.fansLossRate[1]),
+    reputationLoss: randInt(typeConfig.reputationLoss[0], typeConfig.reputationLoss[1]),
+    trustLoss: randInt(typeConfig.trustLoss[0], typeConfig.trustLoss[1]),
+    startDay: state.day,
+    resolved: false,
+    response: null,
+  }
+
+  let reputation = clamp((state.reputation ?? CFG.sentiment.initialReputation) - newRumor.reputationLoss, CFG.sentiment.reputationMin, CFG.sentiment.reputationMax)
+  let trust = clamp((state.trust ?? CFG.sentiment.initialTrust) - newRumor.trustLoss, CFG.sentiment.trustMin, CFG.sentiment.trustMax)
+  let fans = Math.max(0, state.fans - Math.round(state.fans * newRumor.fansLossRate))
+  const initialFansLoss = Math.round(state.fans * newRumor.fansLossRate)
+
+  const logs = [...state.logs]
+  logs.push({
+    day: state.day,
+    text: `【舆情触发】${newRumor.icon} ${newRumor.label}！涉及：${newRumor.targetName}。粉丝 -${initialFansLoss}，严重度 ${newRumor.severity}。`,
+  })
+
+  const sentimentLogs = [...(state.sentimentLogs || [])]
+  sentimentLogs.push({
+    day: state.day,
+    type: 'rumor',
+    rumorId: newRumor.id,
+    rumorType: rumorType,
+    severity: newRumor.severity,
+    targetName: newRumor.targetName,
+    text: `【调试触发】${newRumor.label}，严重度 ${newRumor.severity}，目标：${newRumor.targetName}`,
+  })
+
+  const rumors = [...(state.rumors ?? []), newRumor]
+
+  return {
+    success: true,
+    state: Object.assign({}, state, {
+      fans,
+      reputation,
+      trust,
+      rumors,
+      logs,
+      sentimentLogs,
+      schedule: Object.assign({}, state.schedule || {}),
+    }),
+  }
+}
+
+export function clearSentimentLogs(state) {
+  return {
+    success: true,
+    state: Object.assign({}, state, {
+      sentimentLogs: [],
+      schedule: Object.assign({}, state.schedule || {}),
+    }),
+  }
+}
+
+export function resolveAllRumors(state) {
+  const rumors = (state.rumors ?? []).map((r) => ({
+    ...r,
+    resolved: true,
+    resolvedDay: state.day,
+    resolutionType: 'manual_clear',
+  }))
+
+  const logs = [...state.logs]
+  logs.push({
+    day: state.day,
+    text: `【调试】已手动清除所有未解决传闻。`,
+  })
+
+  return {
+    success: true,
+    state: Object.assign({}, state, {
+      rumors,
+      logs,
+      schedule: Object.assign({}, state.schedule || {}),
+    }),
   }
 }

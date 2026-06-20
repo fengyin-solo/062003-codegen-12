@@ -29,6 +29,9 @@
     @release-single="onReleaseSingle"
     @respond-rumor="onRespondRumor"
     @comfort-fans="onComfortFans"
+    @trigger-rumor="onTriggerRumor"
+    @clear-sentiment-logs="onClearSentimentLogs"
+    @resolve-all-rumors="onResolveAllRumors"
   />
 </template>
 
@@ -60,6 +63,9 @@ const {
   handleReleaseSingle,
   handleRespondToRumor,
   handleComfortFans,
+  handleTriggerRumor,
+  handleClearSentimentLogs,
+  handleResolveAllRumors,
   dismissRating,
   backToMenu,
   getRatingResults,
@@ -114,5 +120,20 @@ function onComfortFans(actionKey) {
   if (result && !result.success) {
     alert(result.message)
   }
+}
+
+function onTriggerRumor(rumorType) {
+  const result = handleTriggerRumor(rumorType)
+  if (result && !result.success) {
+    alert(result.message)
+  }
+}
+
+function onClearSentimentLogs() {
+  handleClearSentimentLogs()
+}
+
+function onResolveAllRumors() {
+  handleResolveAllRumors()
 }
 </script>

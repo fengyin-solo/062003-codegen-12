@@ -12,6 +12,9 @@ import {
   getRelationship,
   respondToRumor,
   comfortFans,
+  triggerRumor,
+  clearSentimentLogs,
+  resolveAllRumors,
 } from '../utils/gameLogic'
 import { saveToSlot } from '../utils/storage'
 
@@ -52,12 +55,18 @@ export function useGame() {
 
   function setSchedule(traineeId, activity) {
     if (!state.value) return
-    state.value.schedule = { ...state.value.schedule, [traineeId]: activity }
+    const newSchedule = { ...state.value.schedule }
+    if (newSchedule[traineeId] === activity) {
+      delete newSchedule[traineeId]
+    } else {
+      newSchedule[traineeId] = activity
+    }
+    state.value.schedule = Object.assign({}, newSchedule)
   }
 
   function clearSchedule() {
     if (!state.value) return
-    state.value.schedule = {}
+    state.value.schedule = Object.assign({}, {})
   }
 
   function canEndDay() {
@@ -118,6 +127,36 @@ export function useGame() {
     return result
   }
 
+  function handleTriggerRumor(rumorType) {
+    if (!state.value) return null
+    const result = triggerRumor(state.value, rumorType)
+    if (result.success) {
+      state.value = result.state
+      autoSave()
+    }
+    return result
+  }
+
+  function handleClearSentimentLogs() {
+    if (!state.value) return null
+    const result = clearSentimentLogs(state.value)
+    if (result.success) {
+      state.value = result.state
+      autoSave()
+    }
+    return result
+  }
+
+  function handleResolveAllRumors() {
+    if (!state.value) return null
+    const result = resolveAllRumors(state.value)
+    if (result.success) {
+      state.value = result.state
+      autoSave()
+    }
+    return result
+  }
+
   function dismissRating() {
     if (!state.value) return
     state.value.pendingRating = false
@@ -152,6 +191,9 @@ export function useGame() {
     handleReleaseSingle,
     handleRespondToRumor,
     handleComfortFans,
+    handleTriggerRumor,
+    handleClearSentimentLogs,
+    handleResolveAllRumors,
     dismissRating,
     backToMenu,
     getRel,

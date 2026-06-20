@@ -39,6 +39,9 @@
           :money="state.money"
           @respond-rumor="(rid, key) => $emit('respond-rumor', rid, key)"
           @comfort-fans="(key) => $emit('comfort-fans', key)"
+          @trigger-rumor="(type) => $emit('trigger-rumor', type)"
+          @clear-sentiment-logs="$emit('clear-sentiment-logs')"
+          @resolve-all-rumors="$emit('resolve-all-rumors')"
         />
         <GroupsPanel
           :groups="state.groups"
@@ -122,6 +125,9 @@ const emit = defineEmits([
   'release-single',
   'respond-rumor',
   'comfort-fans',
+  'trigger-rumor',
+  'clear-sentiment-logs',
+  'resolve-all-rumors',
 ])
 
 const showDebut = ref(false)
