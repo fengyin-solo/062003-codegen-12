@@ -27,6 +27,8 @@
     @debut="onDebut"
     @resolve-poaching="handlePoaching"
     @release-single="onReleaseSingle"
+    @respond-rumor="onRespondRumor"
+    @comfort-fans="onComfortFans"
   />
 </template>
 
@@ -56,6 +58,8 @@ const {
   handlePoaching,
   handleDebut,
   handleReleaseSingle,
+  handleRespondToRumor,
+  handleComfortFans,
   dismissRating,
   backToMenu,
   getRatingResults,
@@ -93,6 +97,20 @@ function onDebut(memberIds, groupName, callback) {
 
 function onReleaseSingle(groupId) {
   const result = handleReleaseSingle(groupId)
+  if (result && !result.success) {
+    alert(result.message)
+  }
+}
+
+function onRespondRumor(rumorId, strategyKey) {
+  const result = handleRespondToRumor(rumorId, strategyKey)
+  if (result && !result.success) {
+    alert(result.message)
+  }
+}
+
+function onComfortFans(actionKey) {
+  const result = handleComfortFans(actionKey)
   if (result && !result.success) {
     alert(result.message)
   }

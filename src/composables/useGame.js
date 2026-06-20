@@ -10,6 +10,8 @@ import {
   calcProfit,
   calcTraineeScore,
   getRelationship,
+  respondToRumor,
+  comfortFans,
 } from '../utils/gameLogic'
 import { saveToSlot } from '../utils/storage'
 
@@ -96,6 +98,26 @@ export function useGame() {
     return result
   }
 
+  function handleRespondToRumor(rumorId, strategyKey) {
+    if (!state.value) return null
+    const result = respondToRumor(state.value, rumorId, strategyKey)
+    if (result.success) {
+      state.value = result.state
+      autoSave()
+    }
+    return result
+  }
+
+  function handleComfortFans(actionKey) {
+    if (!state.value) return null
+    const result = comfortFans(state.value, actionKey)
+    if (result.success) {
+      state.value = result.state
+      autoSave()
+    }
+    return result
+  }
+
   function dismissRating() {
     if (!state.value) return
     state.value.pendingRating = false
@@ -128,6 +150,8 @@ export function useGame() {
     handlePoaching,
     handleDebut,
     handleReleaseSingle,
+    handleRespondToRumor,
+    handleComfortFans,
     dismissRating,
     backToMenu,
     getRel,

@@ -24,6 +24,10 @@ export function createInitialGameState() {
     pendingRating: false,
     gameStatus: 'playing',
     lastSingleDay: {},
+    reputation: CFG.sentiment.initialReputation,
+    trust: CFG.sentiment.initialTrust,
+    rumors: [],
+    sentimentLogs: [],
   }
 }
 
@@ -311,6 +315,13 @@ export function processDay(state) {
     }
   }
 
+  const sentimentResult = processSentiment(state, trainees, logs, fans)
+  fans = sentimentResult.fans
+  const rumors = sentimentResult.rumors
+  let reputation = sentimentResult.reputation
+  let trust = sentimentResult.trust
+  const sentimentLogs = [...(state.sentimentLogs || []), ...sentimentResult.newSentimentLogs]
+
   const nextState = {
     ...state,
     day: newDay,
@@ -323,6 +334,10 @@ export function processDay(state) {
     logs: [...state.logs, ...logs],
     pendingEvent,
     pendingRating,
+    reputation,
+    trust,
+    rumors,
+    sentimentLogs,
   }
 
   const result = checkVictory(nextState)
@@ -554,4 +569,252 @@ export function getRatingResults(state) {
       canDebut: calcTraineeScore(t) >= CFG.rating.debutScoreThreshold,
     }))
     .sort((a, b) => b.score - a.score)
+}
+
+function processSentiment(state, trainees, logs, currentFans) {
+  let fans = currentFans
+  let reputation = state.reputation ?? CFG.sentiment.initialReputation
+  let trust = state.trust ?? CFG.sentiment.initialTrust
+  const newSentimentLogs = []
+  let rumors = (state.rumors ?? []).map((r) => ({ ...r }))
+
+  rumors = rumors.filter((r) => !r.resolved)
+
+  for (const rumor of rumors) {
+    if (rumor.severity > 0) {
+      const dailyFansLoss = Math.round(fans * (rumor.fansLossRate * 0.02))
+      fans = Math.max(0, fans - dailyFansLoss)
+      reputation = clamp(reputation - Math.round(rumor.reputationLoss * 0.03), CFG.sentiment.reputationMin, CFG.sentiment.reputationMax)
+      trust = clamp(trust - Math.round(rumor.trustLoss * 0.03), CFG.sentiment.trustMin, CFG.sentiment.trustMax)
+
+      rumor.severity = clamp(rumor.severity - CFG.sentiment.rumorDecayPerDay, 0, 100)
+
+      if (dailyFansLoss > 0) {
+        logs.push({
+          day: state.day,
+          text: `【舆情】${rumor.label}持续发酵，粉丝 -${dailyFansLoss}。`,
+        })
+      }
+
+      if (rumor.severity <= 0) {
+        rumor.resolved = true
+        rumor.resolvedDay = state.day
+        rumor.resolutionType = 'natural'
+        logs.push({
+          day: state.day,
+          text: `【舆情】${rumor.label}热度消退，逐渐被遗忘。`,
+        })
+      }
+    }
+  }
+
+  if (Math.random() < CFG.sentiment.dailyChance) {
+    const activeTrainees = trainees.filter((t) => t.status !== 'left' && t.illnessDays === 0)
+    if (activeTrainees.length > 0) {
+      const newRumor = generateRumor(activeTrainees, state.day)
+      if (newRumor) {
+        rumors.push(newRumor)
+        reputation = clamp(reputation - newRumor.reputationLoss, CFG.sentiment.reputationMin, CFG.sentiment.reputationMax)
+        trust = clamp(trust - newRumor.trustLoss, CFG.sentiment.trustMin, CFG.sentiment.trustMax)
+        const initialFansLoss = Math.round(fans * newRumor.fansLossRate)
+        fans = Math.max(0, fans - initialFansLoss)
+
+        logs.push({
+          day: state.day,
+          text: `【舆情爆发】${newRumor.icon} ${newRumor.label}！${newRumor.target ? '涉及：' + newRumor.targetName + '。' : ''}粉丝 -${initialFansLoss}。`,
+        })
+        newSentimentLogs.push({
+          day: state.day,
+          type: 'rumor',
+          rumorId: newRumor.id,
+          text: `爆发${newRumor.label}事件，严重度 ${newRumor.severity}`,
+        })
+      }
+    }
+  }
+
+  return { fans, rumors, reputation, trust, newSentimentLogs }
+}
+
+function generateRumor(trainees, day) {
+  const types = Object.entries(CFG.sentiment.rumorTypes).map(([key, val]) => ({
+    key,
+    ...val,
+  }))
+  const picked = weightedPick(types.map((t) => ({ ...t, weight: 1 })))
+  const target = pickRandom(trainees)
+
+  return {
+    id: `r_${day}_${Date.now()}`,
+    type: picked.key,
+    label: picked.label,
+    icon: picked.icon,
+    description: picked.description,
+    targetId: target.id,
+    targetName: target.name,
+    severity: randInt(picked.severity[0], picked.severity[1]),
+    fansLossRate: randFloat(picked.fansLossRate[0], picked.fansLossRate[1]),
+    reputationLoss: randInt(picked.reputationLoss[0], picked.reputationLoss[1]),
+    trustLoss: randInt(picked.trustLoss[0], picked.trustLoss[1]),
+    startDay: day,
+    resolved: false,
+    response: null,
+  }
+}
+
+export function respondToRumor(state, rumorId, strategyKey) {
+  const rumor = state.rumors.find((r) => r.id === rumorId)
+  if (!rumor || rumor.resolved) return { success: false, message: '传闻不存在或已解决' }
+
+  const strategy = CFG.sentiment.responseStrategies[strategyKey]
+  if (!strategy) return { success: false, message: '策略无效' }
+
+  if (state.money < strategy.cost) return { success: false, message: '资金不足' }
+
+  const trainees = state.trainees.map((t) => ({ ...t }))
+  let reputation = state.reputation
+  let trust = state.trust
+  let fans = state.fans
+  const logs = [...state.logs]
+  const sentimentLogs = [...(state.sentimentLogs || [])]
+  let rumors = state.rumors.map((r) => ({ ...r }))
+  let money = state.money
+  let totalExpenses = state.totalExpenses
+
+  money -= strategy.cost
+  totalExpenses += strategy.cost
+
+  const severityReduce = randInt(strategy.effect.severityReduce[0], strategy.effect.severityReduce[1])
+  const trustGain = randInt(strategy.effect.trustGain[0], strategy.effect.trustGain[1])
+  const reputationGain = randInt(strategy.effect.reputationGain[0], strategy.effect.reputationGain[1])
+
+  let finalSeverityReduce = severityReduce
+  let backfire = false
+
+  if (Math.random() < strategy.risk.backfireChance) {
+    backfire = true
+    const addSeverity = randInt(strategy.risk.backfireSeverityAdd[0], strategy.risk.backfireSeverityAdd[1])
+    finalSeverityReduce = severityReduce - addSeverity
+    logs.push({
+      day: state.day,
+      text: `【舆情反转】${strategy.label}策略引火烧身！舆论进一步发酵。`,
+    })
+  }
+
+  rumors = rumors.map((r) => {
+    if (r.id !== rumorId) return r
+    const newSeverity = clamp(r.severity - finalSeverityReduce, 0, 100)
+    return {
+      ...r,
+      severity: newSeverity,
+      response: strategyKey,
+      responseDay: state.day,
+      resolved: newSeverity <= 0,
+      resolvedDay: newSeverity <= 0 ? state.day : null,
+      resolutionType: newSeverity <= 0 ? strategyKey : null,
+    }
+  })
+
+  reputation = clamp(reputation + reputationGain, CFG.sentiment.reputationMin, CFG.sentiment.reputationMax)
+  trust = clamp(trust + trustGain, CFG.sentiment.trustMin, CFG.sentiment.trustMax)
+
+  const targetRumor = rumors.find((r) => r.id === rumorId)
+  if (targetRumor && targetRumor.resolved) {
+    const recoveredFans = Math.round(rumor.fansLossRate * fans * 0.3)
+    fans += recoveredFans
+    logs.push({
+      day: state.day,
+      text: `【舆情平息】${strategy.icon} ${strategy.label}奏效！${rumor.label}已平息，粉丝 +${recoveredFans}。`,
+    })
+  } else if (!backfire) {
+    logs.push({
+      day: state.day,
+      text: `【舆情回应】${strategy.icon} 采取${strategy.label}策略，${rumor.label}严重度 -${finalSeverityReduce}。`,
+    })
+  }
+
+  sentimentLogs.push({
+    day: state.day,
+    type: 'response',
+    rumorId,
+    strategy: strategyKey,
+    backfire,
+    text: `对${rumor.label}采取${strategy.label}策略${backfire ? '（适得其反）' : ''}`,
+  })
+
+  return {
+    success: true,
+    state: {
+      ...state,
+      money,
+      totalExpenses,
+      fans,
+      reputation,
+      trust,
+      trainees,
+      rumors,
+      logs,
+      sentimentLogs,
+    },
+  }
+}
+
+export function comfortFans(state, actionKey) {
+  const action = CFG.sentiment.comfortActions[actionKey]
+  if (!action) return { success: false, message: '安抚方式无效' }
+
+  if (state.money < action.cost) return { success: false, message: '资金不足' }
+
+  const trainees = state.trainees.map((t) => ({ ...t }))
+  let fans = state.fans
+  let trust = state.trust
+  let reputation = state.reputation
+  const logs = [...state.logs]
+  const sentimentLogs = [...(state.sentimentLogs || [])]
+  let money = state.money
+  let totalExpenses = state.totalExpenses
+
+  money -= action.cost
+  totalExpenses += action.cost
+
+  const fansGain = randInt(action.fansGain[0], action.fansGain[1])
+  const trustGain = randInt(action.trustGain[0], action.trustGain[1])
+  const fatigueAdd = randInt(action.fatigueAdd[0], action.fatigueAdd[1])
+
+  fans += fansGain
+  trust = clamp(trust + trustGain, CFG.sentiment.trustMin, CFG.sentiment.trustMax)
+  reputation = clamp(reputation + Math.round(trustGain * 0.5), CFG.sentiment.reputationMin, CFG.sentiment.reputationMax)
+
+  const active = trainees.filter((t) => t.status !== 'left' && t.illnessDays === 0)
+  for (const t of active) {
+    t.fatigue = clamp(t.fatigue + fatigueAdd, 0, 100)
+    t.fans += Math.round(fansGain * 0.15)
+  }
+
+  logs.push({
+    day: state.day,
+    text: `【粉丝安抚】${action.icon} ${action.label}！粉丝 +${fansGain}，信任度 +${trustGain}。`,
+  })
+
+  sentimentLogs.push({
+    day: state.day,
+    type: 'comfort',
+    action: actionKey,
+    text: `执行${action.label}，粉丝 +${fansGain}`,
+  })
+
+  return {
+    success: true,
+    state: {
+      ...state,
+      money,
+      totalExpenses,
+      fans,
+      reputation,
+      trust,
+      trainees,
+      logs,
+      sentimentLogs,
+    },
+  }
 }

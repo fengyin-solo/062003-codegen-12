@@ -34,6 +34,12 @@
       </main>
 
       <aside class="right-panel">
+        <SentimentPanel
+          :state="state"
+          :money="state.money"
+          @respond-rumor="(rid, key) => $emit('respond-rumor', rid, key)"
+          @comfort-fans="(key) => $emit('comfort-fans', key)"
+        />
         <GroupsPanel
           :groups="state.groups"
           :trainees="state.trainees"
@@ -87,6 +93,7 @@ import SchedulePanel from './SchedulePanel.vue'
 import DayLog from './DayLog.vue'
 import GroupsPanel from './GroupsPanel.vue'
 import RelationshipPanel from './RelationshipPanel.vue'
+import SentimentPanel from './SentimentPanel.vue'
 import RatingModal from './RatingModal.vue'
 import DebutModal from './DebutModal.vue'
 import EventModal from './EventModal.vue'
@@ -113,6 +120,8 @@ const emit = defineEmits([
   'debut',
   'resolve-poaching',
   'release-single',
+  'respond-rumor',
+  'comfort-fans',
 ])
 
 const showDebut = ref(false)
